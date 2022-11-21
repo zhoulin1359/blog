@@ -50,9 +50,9 @@ context 包的代码并不长，context.go 文件总共不到 500 行，其中�
 
 先给大家看一张整体的图：
 
-![img\img1.png](img\img1.png)
+![img\img1.png](img/img1.png)
 
-![img\img2.png](img\img2.png)
+![img\img2.png](img/img2.png)
 
 
 
@@ -60,7 +60,7 @@ context 包的代码并不长，context.go 文件总共不到 500 行，其中�
 
 整体类图如下：
 
-![img\img3.png](img\img3.png)
+![img\img3.png](img/img3.png)
 
 
 
