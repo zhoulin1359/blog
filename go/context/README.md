@@ -242,19 +242,41 @@ WithValue 创建 context 节点的过程实际上就是创建链表节点的过�
 
 而这也是 context.Value 最受争议的地方。很多人建议尽量不要通过 context 传值。
 
+改进方法：
+
+使用map存储存放的值，gin框架的上下文是这么使用的，大概的代码逻辑：
+```go
+type valueCtx struct {
+	context.Context
+	keys sync.Map
+}
+
+func (ctx *valueCtx) Value(key interface{}) interface{} {
+	v, _ := ctx.keys.Load(key)
+	return v
+}
+```
+
+单侧运行
+>go test -run=TestUseValue -v
+> 
+> go test -run=TestUseCtxValue -v
+
+
 
 #### cancelCtx
-再来看一个重要的 context：
+再来看一个最重要的 context：
 ```go
-// A cancelCtx can be canceled. When canceled, it also cancels any children
-// that implement canceler.
 type cancelCtx struct {
-Context
-
-mu       sync.Mutex            // protects following fields
-done     atomic.Value          // of chan struct{}, created lazily, closed by first cancel call
-children map[canceler]struct{} // set to nil by the first cancel call
-err      error                 // set to non-nil by the first cancel call
+    Context
+	//锁，保证原子性
+    mu       sync.Mutex            // protects following fields
+    //是否已经取消 
+	done     atomic.Value          // of chan struct{}, created lazily, closed by first cancel call
+	// 保存所有的可以取消的子节点
+    children map[canceler]struct{} // set to nil by the first cancel call
+	// 错误信息
+    err      error                 // set to non-nil by the first cancel call
 }
 ```
 
@@ -280,7 +302,26 @@ func (c *cancelCtx) Done() <-chan struct{} {
 
 c.done 是“懒汉式”创建，只有调用了 Done() 方法的时候才会被创建。再次说明，函数返回的是一个只读的 channel，而且没有地方向这个 channel 里面写数据。所以，直接调用读这个 channel，协程会被 block 住。一般通过搭配 select 来使用。一旦关闭，就会立即读出零值。
 
-Err() 和 String() 方法比较简单，不多说。推荐看源码，非常简单。
+Err() 方法：
+```go
+func (c *cancelCtx) Err() error {
+	c.mu.Lock()
+	err := c.err
+	c.mu.Unlock()
+	return err
+}
+```
+这个方法是可以使用defer优化的，并且之前的版本就是这样的：
+```go
+func (c *cancelCtx) Err() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.err
+}
+```
+为什么改为现在这样，主要原因是性能考量
+>go test -v -run="noce" -bench=. -benchtime=10s
+
 
 接下来，我们重点关注 cancel() 方法的实现：
 
