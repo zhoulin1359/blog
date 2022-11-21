@@ -3,23 +3,16 @@ package context
 import (
 	"context"
 	"fmt"
-	"time"
+	"github.com/gookit/goutil/dump"
 )
 
-func New() {
-	context.TODO()
-}
-
-func gen() <-chan int {
-	ch := make(chan int)
-	go func() {
-		var n int
-		for {
-			ch <- n
-			n++
-			time.Sleep(time.Second)
-			fmt.Println(1, n)
-		}
-	}()
-	return ch
+// UseValue 传值的context
+func UseValue() {
+	ctx := context.TODO()
+	//设置值
+	ctx = context.WithValue(ctx, "a", "a1")
+	fmt.Println(ctx.Value("a"))
+	ctx = context.WithValue(ctx, "a", "a2")
+	fmt.Println(ctx.Value("a"))
+	dump.P(ctx)
 }
