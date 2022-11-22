@@ -11,6 +11,9 @@ type valueCtx struct {
 }
 
 func (ctx *valueCtx) Value(key interface{}) interface{} {
-	v, _ := ctx.keys.Load(key)
-	return v
+	v, ok := ctx.keys.Load(key)
+	if ok {
+		return v
+	}
+	return ctx.Context.Value(key)
 }

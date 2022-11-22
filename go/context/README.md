@@ -252,10 +252,47 @@ type valueCtx struct {
 }
 
 func (ctx *valueCtx) Value(key interface{}) interface{} {
-	v, _ := ctx.keys.Load(key)
-	return v
+	v, ok := ctx.keys.Load(key)
+	if ok {
+		return v
+	}
+	return ctx.Context.Value(key)
 }
 ```
+存放在上下文里面的是一个map,grpc使用这种方式存放数据在上下文里面：
+```go
+type mdIncomingKey struct{}
+
+// NewIncomingContext creates a new context with incoming md attached.
+func NewIncomingContext(ctx context.Context, md MD) context.Context {
+	return context.WithValue(ctx, mdIncomingKey{}, md)
+}
+
+```
+
+```go
+// FromIncomingContext returns the incoming metadata in ctx if it exists.
+//
+// All keys in the returned MD are lowercase.
+func FromIncomingContext(ctx context.Context) (MD, bool) {
+	md, ok := ctx.Value(mdIncomingKey{}).(MD)
+	if !ok {
+		return nil, false
+	}
+	out := MD{}
+	for k, v := range md {
+		// We need to manually convert all keys to lower case, because MD is a
+		// map, and there's no guarantee that the MD attached to the context is
+		// created using our helper functions.
+		key := strings.ToLower(k)
+		s := make([]string, len(v))
+		copy(s, v)
+		out[key] = s
+	}
+	return out, true
+}
+```
+
 
 单侧运行
 >go test -run=TestUseValue -v

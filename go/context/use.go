@@ -28,5 +28,8 @@ func UseCtxValue() {
 		keys:    store,
 	}
 	fmt.Println(ctx.Value("a"))
+
+	ctx = context.WithValue(ctx, "key", "a3")
+	fmt.Println(ctx.Value("key"))
 	dump.P(ctx)
 }
