@@ -1,9 +1,5 @@
 ### 上下文context源码解读
 
-Go 语言的 context 包短小精悍，非常适合新手学习。不论是它的源码还是实际使用，都值得投入时间去学习。
-
-这篇文章依然想尝试全面、深入地去研究。文章相比往期而言，整体不长，希望你看完可以有所收获！
-
 #### 什么是 context
 Go 1.7 标准库引入 context，中文译作“上下文”，准确说它是 goroutine 的上下文，包含 goroutine 的运行状态、环境、现场等信息。
 
@@ -13,7 +9,7 @@ context 主要用来在 goroutine 之间传递上下文信息，包括：取消�
 
 >context.Context 类型的值可以协调多个 groutine 中的代码执行“取消”操作，并且可以存储键值对。最重要的是它是并发安全的。
 与它协作的 API 都可以由外部控制执行“取消”操作，例如：取消一个 HTTP 请求的执行。
-没看懂？没关系，先往后看。
+取消一个redis的set命令
 
 #### 为什么有 context
 Go 常用来写后台服务，通常只需要几行代码，就可以搭建一个 http server。
@@ -27,15 +23,11 @@ Go 常用来写后台服务，通常只需要几行代码，就可以搭建一�
 
 这些 goroutine 需要共享这个请求的基本数据，例如登陆的 token，处理请求的最大超时时间（如果超过此值再返回数据，请求方因为超时接收不到）等等。当请求被取消或是处理时间太长，这有可能是使用者关闭了浏览器或是已经超过了请求方规定的超时时间，请求方直接放弃了这次请求结果。这时，所有正在为这个请求工作的 goroutine 需要快速退出，因为它们的“工作成果”不再被需要了。在相关联的 goroutine 都退出后，系统就可以回收相关的资源。
 
-再多说一点，Go 语言中的 server 实际上是一个“协程模型”，也就是说一个协程处理一个请求。例如在业务的高峰期，某个下游服务的响应变慢，而当前系统的请求又没有超时控制，或者超时时间设置地过大，那么等待下游服务返回数据的协程就会越来越多。而我们知道，协程是要消耗系统资源的，后果就是协程数激增，内存占用飙涨，甚至导致服务不可用。更严重的会导致雪崩效应，整个服务对外表现为不可用，这肯定是 P0 级别的事故。这时，肯定有人要背锅了。
+再多说一点，Go 语言中的 server 实际上是一个“协程模型”，也就是说一个协程处理一个请求。例如在业务的高峰期，某个下游服务的响应变慢，而当前系统的请求又没有超时控制，或者超时时间设置地过大，那么等待下游服务返回数据的协程就会越来越多。而我们知道，协程是要消耗系统资源的，后果就是协程数激增，内存占用飙涨，甚至导致服务不可用。更严重的会导致雪崩效应，整个服务对外表现为不可用，这肯定是 P0 级别的事故。
 
-其实前面描述的 P0 级别事故，通过设置“允许下游最长处理时间”就可以避免。例如，给下游设置的 timeout 是 50 ms，如果超过这个值还没有接收到返回数据，就直接向客户端返回一个默认值或者错误。例如，返回商品的一个默认库存数量。注意，这里设置的超时时间和创建一个 http client 设置的读写超时时间不一样，这里不详细展开。可以去看看参考资料【Go 在今日头条的实践】一文，有很精彩的论述。
+其实前面描述的 P0 级别事故，通过设置“允许下游最长处理时间”就可以避免。例如，给下游设置的 timeout 是 50 ms，如果超过这个值还没有接收到返回数据，就直接向客户端返回一个默认值或者错误。
 
 context 包就是为了解决上面所说的这些问题而开发的：在 一组 goroutine 之间传递共享的值、取消信号、deadline……
-
-![img.png](img/img.png)
-
-
 
 
 用简练一些的话来说，在Go 里，我们不能直接杀死协程，协程的关闭一般会用 channel+select 方式来控制。但是在某些场景下，例如处理一个请求衍生了很多协程，这些协程之间是相互关联的：需要共享一些全局变量、有共同的 deadline 等，而且可以同时被关闭。再用 channel+select 就会比较麻烦，这时就可以通过 context 来实现。
@@ -46,7 +38,7 @@ context 包就是为了解决上面所说的这些问题而开发的：在 一�
 我们分析的 Go 版本依然是 1.17.11
 
 ### 整体概览
-context 包的代码并不长，context.go 文件总共 568 行，其中还有很多大段的注释，代码可能也就 339 行，是一个非常值得研究的代码库。
+context 包的代码并不长，context.go 文件总共 568 行，其中还有很多大段的注释，代码也就 339 行。
 
 先给大家看一张整体的图：
 
@@ -86,7 +78,7 @@ type Context interface {
 
 Context 是一个接口，定义了 4 个方法，它们都是幂等的。也就是说连续多次调用同一个方法，得到的结果都是相同的。
 
-Done() 返回一个 channel，可以表示 context 被取消的信号：当这个 channel 被关闭时，说明 context 被取消了。注意，这是一个只读的channel。 我们又知道，读一个关闭的 channel 会读出相应类型的零值。并且源码里没有地方会向这个 channel 里面塞入值。换句话说，这是一个 receive-only 的 channel。因此在子协程里读这个 channel，除非被关闭，否则读不出来任何东西。也正是利用了这一点，子协程从 channel 里读出了值（零值）后，就可以做一些收尾工作，尽快退出。
+Done() 返回一个 channel，可以表示 context 被取消的信号：当这个 channel 被关闭时，说明 context 被取消了。注意，这是一个只读的channel。 我们知道，读一个关闭的 channel 会读出相应类型的零值。并且源码里没有地方会向这个 channel 里面塞入值。换句话说，这是一个 receive-only 的 channel。因此在子协程里读这个 channel，除非被关闭，否则读不出来任何东西。也正是利用了这一点，子协程从 channel 里读出了值（零值）后，就可以做一些收尾工作，尽快退出。
 
 Err() 返回一个错误，表示 channel 被关闭的原因。例如是被取消，还是超时。
 
@@ -108,7 +100,7 @@ Done() <-chan struct{}
 Context 接口设计成这个样子的原因：
 
 “取消”操作应该是建议性，而非强制性
-caller 不应该去关心、干涉 callee 的情况，决定如何以及何时 return 是 callee 的责任。caller 只需发送“取消”信息，callee 根据收到的信息来做进一步的决策，因此接口并没有定义 cancel 方法。
+caller 不应该去关心、干涉 caller 的情况，决定如何以及何时 return 是 caller 的责任。caller 只需发送“取消”信息，callee 根据收到的信息来做进一步的决策，因此接口并没有定义 cancel 方法。
 
 “取消”操作应该可传递
 “取消”某个函数时，和它相关联的其他函数也应该“取消”。因此，Done() 方法返回一个只读的 channel，所有相关函数监听此 channel。一旦 channel 关闭，通过 channel 的“广播机制”，所有监听者都能收到。
@@ -318,8 +310,143 @@ type cancelCtx struct {
 ```
 
 这是一个可以取消的 Context，实现了 canceler 接口。它直接将接口 Context 作为它的一个匿名字段，这样，它就可以被看成一个 Context。
+先来看是怎么创建一个可以取消的上下文的：
+```go
+func WithCancel(parent Context) (ctx Context, cancel CancelFunc) {
+	if parent == nil {
+		panic("cannot create context from nil parent")
+	}
+	c := newCancelCtx(parent)
+	propagateCancel(parent, &c)
+	return &c, func() { c.cancel(true, Canceled) }
+}
 
-先来看 Done() 方法的实现：
+// newCancelCtx returns an initialized cancelCtx.
+func newCancelCtx(parent Context) cancelCtx {
+	return cancelCtx{Context: parent}
+}
+
+// goroutines counts the number of goroutines ever created; for testing.
+var goroutines int32
+
+// propagateCancel arranges for child to be canceled when parent is.
+func propagateCancel(parent Context, child canceler) {
+	done := parent.Done()
+	if done == nil {
+		return // parent is never canceled
+	}
+
+	select {
+	case <-done:
+		// parent is already canceled
+		child.cancel(false, parent.Err())
+		return
+	default:
+	}
+
+	if p, ok := parentCancelCtx(parent); ok {
+		p.mu.Lock()
+		if p.err != nil {
+			// parent has already been canceled
+			child.cancel(false, p.err)
+		} else {
+			if p.children == nil {
+				p.children = make(map[canceler]struct{})
+			}
+			p.children[child] = struct{}{}
+		}
+		p.mu.Unlock()
+	} else {
+		atomic.AddInt32(&goroutines, +1)
+		go func() {
+			select {
+			case <-parent.Done():
+				child.cancel(false, parent.Err())
+			case <-child.Done():
+			}
+		}()
+	}
+}
+
+// &cancelCtxKey is the key that a cancelCtx returns itself for.
+var cancelCtxKey int
+
+// parentCancelCtx returns the underlying *cancelCtx for parent.
+// It does this by looking up parent.Value(&cancelCtxKey) to find
+// the innermost enclosing *cancelCtx and then checking whether
+// parent.Done() matches that *cancelCtx. (If not, the *cancelCtx
+// has been wrapped in a custom implementation providing a
+// different done channel, in which case we should not bypass it.)
+func parentCancelCtx(parent Context) (*cancelCtx, bool) {
+	done := parent.Done()
+	if done == closedchan || done == nil {
+		return nil, false
+	}
+	p, ok := parent.Value(&cancelCtxKey).(*cancelCtx)
+	if !ok {
+		return nil, false
+	}
+	pdone, _ := p.done.Load().(chan struct{})
+	if pdone != done {
+		return nil, false
+	}
+	return p, true
+}
+```
+这是一个暴露给用户的方法，传入一个父 Context（这通常是一个 background，作为根节点），返回新建的 context，新 context 的 done channel 是新建的。
+
+当 WithCancel 函数返回的 CancelFunc 被调用或者是父节点的 done channel 被关闭（父节点的 CancelFunc 被调用），此 context（子节点） 的 done channel 也会被关闭。
+
+注意传给 WithCancel 方法的参数，前者是 true，也就是说取消的时候，需要将自己从父节点里删除。第二个参数则是一个固定的取消错误类型：
+
+>var Canceled = errors.New("context canceled")
+> 
+还注意到一点，调用子节点 cancel 方法的时候，传入的第一个参数 removeFromParent 是 false。
+
+两个问题需要回答：1. 什么时候会传 true？2. 为什么有时传 true，有时传 false？
+
+当 removeFromParent 为 true 时，会将当前节点的 context 从父节点 context 中删除：
+
+最关键的一行：
+
+>delete(p.children, child)
+
+什么时候会传 true 呢？答案是调用 WithCancel() 方法的时候，也就是新创建一个可取消的 context 节点时，返回的 cancelFunc 函数会传入 true。这样做的结果是：当调用返回的 cancelFunc 时，会将这个 context 从它的父节点里“除名”，因为父节点可能有很多子节点，你自己取消了，所以我要和你断绝关系，对其他人没影响。
+
+在取消函数内部，我知道，我所有的子节点都会因为我的一：c.children = nil 而化为灰烬。我自然就没有必要再多做这一步，最后我所有的子节点都会和我断绝关系，没必要一个个做。另外，如果遍历子节点的时候，调用 child.cancel 函数传了 true，还会造成同时遍历和删除一个 map 的境地，会有问题的。
+>go test -v -run=TestUseMap  map并发不是安全的
+
+这个parentCancelCtx方法的作用就是向上寻找可以“挂靠”的“可取消”的 context，并且“挂靠”上去。这样，调用上层 cancel 方法的时候，就可以层层传递，将那些挂靠的子 context 同时“取消”。
+
+这里着重解释下为什么会有 else 描述的情况发生。else 是指当前节点 context 没有向上找到可以取消的父节点，那么就要再启动一个协程监控父节点或者子节点的取消动作。
+
+这里就有疑问了，既然没找到可以取消的父节点，那 case <-parent.Done() 这个 case 就永远不会发生，所以可以忽略这个 case；而 case <-child.Done() 这个 case 又啥事不干。那这个 else 不就多余了吗？
+
+其实不然。我们回看下 parentCancelCtx 的代码。
+
+
+
+![img_1.png](img/img_1.png)
+
+
+如上左图，代表一棵 context 树。当调用左图中标红 context 的 cancel 方法后，该 context 从它的父 context 中去除掉了：实线箭头变成了虚线。且虚线圈框出来的 context 都被取消了，圈内的 context 间的父子取消关系都荡然无存了。
+
+
+再来说一下，select 语句里的两个 case 其实都不能删。
+
+```go
+select {
+case <-parent.Done():
+    child.cancel(false, parent.Err())
+case <-child.Done():
+}
+```
+第一个 case 说明当父节点取消，则取消子节点。如果去掉这个 case，那么父节点取消的信号就不能传递到子节点。
+
+第二个 case 是说如果子节点自己取消了，那就退出这个 select，父节点的取消信号就不用管了。如果去掉这个 case，那么很可能父节点一直不取消，这个 goroutine 就泄漏了。当然，如果父节点取消了，就会重复让子节点取消，不过，这也没什么影响嘛。
+
+
+来看 Done() 方法的实现：
 ```go
 func (c *cancelCtx) Done() <-chan struct{} {
 	d := c.done.Load()
@@ -338,6 +465,11 @@ func (c *cancelCtx) Done() <-chan struct{} {
 ```
 
 c.done 是“懒汉式”创建，只有调用了 Done() 方法的时候才会被创建。再次说明，函数返回的是一个只读的 channel，而且没有地方向这个 channel 里面写数据。所以，直接调用读这个 channel，协程会被 block 住。一般通过搭配 select 来使用。一旦关闭，就会立即读出零值。
+>向一个close的chan写入会panic,读取不会
+> 
+> go test -v -run=TestUseCloseChan
+
+
 
 Err() 方法：
 ```go
@@ -400,201 +532,7 @@ close(c.done)
 
 总体来看，cancel() 方法的功能就是关闭 channel：c.done；递归地取消它的所有子节点；从父节点从删除自己。达到的效果是通过关闭 channel，将取消信号传递给了它的所有子节点。goroutine 接收到取消信号的方式就是 select 语句中的读 c.done 被选中。
 
-我们再来看创建一个可取消的 Context 的方法：
-```go
-// A CancelFunc tells an operation to abandon its work.
-// A CancelFunc does not wait for the work to stop.
-// A CancelFunc may be called by multiple goroutines simultaneously.
-// After the first call, subsequent calls to a CancelFunc do nothing.
-type CancelFunc func()
 
-// WithCancel returns a copy of parent with a new Done channel. The returned
-// context's Done channel is closed when the returned cancel function is called
-// or when the parent context's Done channel is closed, whichever happens first.
-//
-// Canceling this context releases resources associated with it, so code should
-// call cancel as soon as the operations running in this Context complete.
-func WithCancel(parent Context) (ctx Context, cancel CancelFunc) {
-	if parent == nil {
-		panic("cannot create context from nil parent")
-	}
-	c := newCancelCtx(parent)
-	propagateCancel(parent, &c)
-	return &c, func() { c.cancel(true, Canceled) }
-}
-
-// newCancelCtx returns an initialized cancelCtx.
-func newCancelCtx(parent Context) cancelCtx {
-	return cancelCtx{Context: parent}
-}
-```
-
-这是一个暴露给用户的方法，传入一个父 Context（这通常是一个 background，作为根节点），返回新建的 context，新 context 的 done channel 是新建的（前文讲过）。
-
-当 WithCancel 函数返回的 CancelFunc 被调用或者是父节点的 done channel 被关闭（父节点的 CancelFunc 被调用），此 context（子节点） 的 done channel 也会被关闭。
-
-注意传给 WithCancel 方法的参数，前者是 true，也就是说取消的时候，需要将自己从父节点里删除。第二个参数则是一个固定的取消错误类型：
-
-var Canceled = errors.New("context canceled")
-还注意到一点，调用子节点 cancel 方法的时候，传入的第一个参数 removeFromParent 是 false。
-
-两个问题需要回答：1. 什么时候会传 true？2. 为什么有时传 true，有时传 false？
-
-当 removeFromParent 为 true 时，会将当前节点的 context 从父节点 context 中删除：
-
-```go
-// removeChild removes a context from its parent.
-func removeChild(parent Context, child canceler) {
-	p, ok := parentCancelCtx(parent)
-	if !ok {
-		return
-	}
-	p.mu.Lock()
-	if p.children != nil {
-		delete(p.children, child)
-	}
-	p.mu.Unlock()
-}
-```
-最关键的一行：
-
-delete(p.children, child)
-什么时候会传 true 呢？答案是调用 WithCancel() 方法的时候，也就是新创建一个可取消的 context 节点时，返回的 cancelFunc 函数会传入 true。这样做的结果是：当调用返回的 cancelFunc 时，会将这个 context 从它的父节点里“除名”，因为父节点可能有很多子节点，你自己取消了，所以我要和你断绝关系，对其他人没影响。
-
-在取消函数内部，我知道，我所有的子节点都会因为我的一：c.children = nil 而化为灰烬。我自然就没有必要再多做这一步，最后我所有的子节点都会和我断绝关系，没必要一个个做。另外，如果遍历子节点的时候，调用 child.cancel 函数传了 true，还会造成同时遍历和删除一个 map 的境地，会有问题的。
-
-
-
-![img_1.png](img/img_1.png)
-
-
-如上左图，代表一棵 context 树。当调用左图中标红 context 的 cancel 方法后，该 context 从它的父 context 中去除掉了：实线箭头变成了虚线。且虚线圈框出来的 context 都被取消了，圈内的 context 间的父子关系都荡然无存了。
-
-重点看 propagateCancel()：
-```go
-// propagateCancel arranges for child to be canceled when parent is.
-func propagateCancel(parent Context, child canceler) {
-	done := parent.Done()
-	if done == nil {
-		return // parent is never canceled
-	}
-
-	select {
-	case <-done:
-		// parent is already canceled
-		child.cancel(false, parent.Err())
-		return
-	default:
-	}
-
-	if p, ok := parentCancelCtx(parent); ok {
-		p.mu.Lock()
-		if p.err != nil {
-			// parent has already been canceled
-			child.cancel(false, p.err)
-		} else {
-			if p.children == nil {
-				p.children = make(map[canceler]struct{})
-			}
-			p.children[child] = struct{}{}
-		}
-		p.mu.Unlock()
-	} else {
-		atomic.AddInt32(&goroutines, +1)
-		go func() {
-			select {
-			case <-parent.Done():
-				child.cancel(false, parent.Err())
-			case <-child.Done():
-			}
-		}()
-	}
-}
-```
-
-这个方法的作用就是向上寻找可以“挂靠”的“可取消”的 context，并且“挂靠”上去。这样，调用上层 cancel 方法的时候，就可以层层传递，将那些挂靠的子 context 同时“取消”。
-
-这里着重解释下为什么会有 else 描述的情况发生。else 是指当前节点 context 没有向上找到可以取消的父节点，那么就要再启动一个协程监控父节点或者子节点的取消动作。
-
-这里就有疑问了，既然没找到可以取消的父节点，那 case <-parent.Done() 这个 case 就永远不会发生，所以可以忽略这个 case；而 case <-child.Done() 这个 case 又啥事不干。那这个 else 不就多余了吗？
-
-其实不然。我们来看 parentCancelCtx 的代码：
-
-```go
-// parentCancelCtx returns the underlying *cancelCtx for parent.
-// It does this by looking up parent.Value(&cancelCtxKey) to find
-// the innermost enclosing *cancelCtx and then checking whether
-// parent.Done() matches that *cancelCtx. (If not, the *cancelCtx
-// has been wrapped in a custom implementation providing a
-// different done channel, in which case we should not bypass it.)
-func parentCancelCtx(parent Context) (*cancelCtx, bool) {
-	done := parent.Done()
-	if done == closedchan || done == nil {
-		return nil, false
-	}
-	p, ok := parent.Value(&cancelCtxKey).(*cancelCtx)
-	if !ok {
-		return nil, false
-	}
-	pdone, _ := p.done.Load().(chan struct{})
-	if pdone != done {
-		return nil, false
-	}
-	return p, true
-}
-```
-这里只会识别三种 Context 类型：cancelCtx，timerCtx，*valueCtx。若是把 Context 内嵌到一个类型里，就识别不出来了。
-
-由于 context 包的代码并不多，所以我直接把它 copy 出来了，然后在 else 语句里加上了几条打印语句，来验证上面的说法：
-```go
-type MyContext struct {
-    // 这里的 Context 是我 copy 出来的，所以前面不用加 context.
-    Context
-}
-
-func main() {
-    childCancel := true
-
-    parentCtx, parentFunc := WithCancel(Background())
-    mctx := MyContext{parentCtx}
-
-    childCtx, childFun := WithCancel(mctx)
-
-    if childCancel {
-        childFun()
-    } else {
-        parentFunc()
-    }
-
-    fmt.Println(parentCtx)
-    fmt.Println(mctx)
-    fmt.Println(childCtx)
-
-    // 防止主协程退出太快，子协程来不及打印 
-    time.Sleep(10 * time.Second)
-}
-```
-我自已在 else 里添加的打印语句我就不贴出来了，感兴趣的可以自己动手实验下。我们看下三个 context 的打印结果：
-
-context.Background.WithCancel
-{context.Background.WithCancel}
-{context.Background.WithCancel}.WithCancel
-果然，mctx，childCtx 和正常的 parentCtx 不一样，因为它是一个自定义的结构体类型。
-
-else 这段代码说明，如果把 ctx 强行塞进一个结构体，并用它作为父节点，调用 WithCancel 函数构建子节点 context 的时候，Go 会新启动一个协程来监控取消信号，明显有点浪费嘛。
-
-再来说一下，select 语句里的两个 case 其实都不能删。
-
-```go
-select {
-case <-parent.Done():
-    child.cancel(false, parent.Err())
-case <-child.Done():
-}
-```
-第一个 case 说明当父节点取消，则取消子节点。如果去掉这个 case，那么父节点取消的信号就不能传递到子节点。
-
-第二个 case 是说如果子节点自己取消了，那就退出这个 select，父节点的取消信号就不用管了。如果去掉这个 case，那么很可能父节点一直不取消，这个 goroutine 就泄漏了。当然，如果父节点取消了，就会重复让子节点取消，不过，这也没什么影响嘛。
 
 #### timerCtx
 timerCtx 基于 cancelCtx，只是多了一个 time.Timer 和一个 deadline。Timer 会在 deadline 到来时，自动取消 context。
