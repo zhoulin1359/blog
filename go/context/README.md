@@ -100,9 +100,10 @@ Done() <-chan struct{}
 Context 接口设计成这个样子的原因：
 
 “取消”操作应该是建议性，而非强制性
-caller 不应该去关心、干涉 caller 的情况，决定如何以及何时 return 是 caller 的责任。caller 只需发送“取消”信息，callee 根据收到的信息来做进一步的决策，因此接口并没有定义 cancel 方法。
+caller 不应该去关心、干涉 callee 的情况，决定如何以及何时 return 是 callee 的责任。caller 只需发送“取消”信息，callee 根据收到的信息来做进一步的决策，因此接口并没有定义 cancel 方法。
 
 “取消”操作应该可传递
+
 “取消”某个函数时，和它相关联的其他函数也应该“取消”。因此，Done() 方法返回一个只读的 channel，所有相关函数监听此 channel。一旦 channel 关闭，通过 channel 的“广播机制”，所有监听者都能收到。
 
 ## 结构体
@@ -130,7 +131,7 @@ func (*emptyCtx) Value(key interface{}) interface{} {
 }
 ```
 
-看这段源码，非常 happy。因为每个函数都实现的异常简单，要么是直接返回，要么是返回 nil。
+每个函数都实现的异常简单，要么是直接返回，要么是返回 nil。
 
 所以，这实际上是一个空的 context，永远不会被 cancel，没有存储值，也没有 deadline。
 
