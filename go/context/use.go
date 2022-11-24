@@ -6,6 +6,7 @@ import (
 	"github.com/gookit/goutil/dump"
 	"log"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -63,6 +64,81 @@ func UseCloseChan() {
 	close(c)
 	fmt.Println(<-c)
 	c <- 1
+}
+
+func UseParentNil() {
+	ctx := context.Background()
+	//取消的上下文
+	ctx, cancel := context.WithCancel(ctx)
+	//自定义的上下文
+	ctx = &valueCtx{
+		ctx,
+		sync.Map{},
+	}
+	//又一个取消的上下文
+	ctx, _ = context.WithCancel(ctx)
+	go func(ctx1 context.Context) {
+		<-ctx1.Done()
+		log.Println("cancel", ctx1.Err(), &ctx1)
+	}(ctx)
+	//dump.P(ctx)
+	time.Sleep(time.Second * 1)
+	cancel()
+	time.Sleep(time.Second * 1)
+}
+
+func UseParentDone() {
+	ctx := context.Background()
+	//取消的上下文
+	ctx, cancel := context.WithCancel(ctx)
+	//自定义的上下文
+	ctx1 := &ctxCancel{
+		Context: ctx,
+		mu:      sync.Mutex{},
+		done:    nil,
+		err:     nil,
+	}
+	//需要监听父级context是否退出了
+	ctx1.Watch()
+	//取消的上下文1
+	ctx, _ = context.WithCancel(ctx1)
+	go func(ctx1 context.Context) {
+		<-ctx1.Done()
+		log.Println("cancel1", ctx1.Err(), &ctx1)
+	}(ctx)
+	//取消的上下文2
+	ctx, _ = context.WithCancel(ctx1)
+	go func(ctx1 context.Context) {
+		<-ctx1.Done()
+		log.Println("cancel2", ctx1.Err(), &ctx1)
+	}(ctx)
+
+	time.Sleep(time.Second * 1)
+	cancel()
+	time.Sleep(time.Second * 1)
+}
+
+func UseCtxWrap() {
+	ctx := context.TODO()
+	ctx, _ = context.WithCancel(ctx)
+
+	ctx1 := &ctxWrap{
+		Context: ctx,
+		done:    atomic.Value{},
+	}
+	ctx1.SetDone()
+
+	c1 := make(chan struct{})
+	c2 := make(chan struct{})
+	fmt.Println(c1, c2, c1 == c2)
+	ctx, _ = context.WithCancel(ctx1)
+	go func(ctx1 context.Context) {
+		<-ctx1.Done()
+		log.Println("cancel", ctx1.Err(), &ctx1)
+	}(ctx)
+	time.Sleep(time.Second * 1)
+	ctx1.Close()
+	time.Sleep(time.Second * 1)
 }
 
 func UseCancelDebug() {
@@ -158,7 +234,7 @@ func ContextParentValue() {
 }
 
 func ContextMy() {
-	ctx := &ctxMy{}
+	ctx := &ctxCancel{}
 	ctx1, _ := context.WithCancel(ctx)
 	go printName(ctx1, "ctx1")
 	time.Sleep(time.Second * 1)

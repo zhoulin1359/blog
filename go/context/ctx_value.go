@@ -17,3 +17,7 @@ func (ctx *valueCtx) Value(key interface{}) interface{} {
 	}
 	return ctx.Context.Value(key)
 }
+
+func (ctx *valueCtx) Done() <-chan struct{} {
+	return nil
+}

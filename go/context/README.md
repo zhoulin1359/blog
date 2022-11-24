@@ -386,6 +386,8 @@ func parentCancelCtx(parent Context) (*cancelCtx, bool) {
 	if !ok {
 		return nil, false
 	}
+	//先判断Value方法获取到的是不是cancelCtx，自定义的上下文可以通过继承来获取到,
+	//这里的判断是判断父级的通道和通过上下文树找到的cancelCtx的通道是不是同一个（指针对比）
 	pdone, _ := p.done.Load().(chan struct{})
 	if pdone != done {
 		return nil, false
@@ -422,16 +424,63 @@ func parentCancelCtx(parent Context) (*cancelCtx, bool) {
 
 这里就有疑问了，既然没找到可以取消的父节点，那 case <-parent.Done() 这个 case 就永远不会发生，所以可以忽略这个 case；而 case <-child.Done() 这个 case 又啥事不干。那这个 else 不就多余了吗？
 
-其实不然。我们回看下 parentCancelCtx 的代码。
+其实不然。我们回看下 parentCancelCtx 的代码。这个方法是看父context是不是cancelCtxKey，因为Context是接口，可以自定义上下文的，使用自定义上下文需要注意这些问题：
+
+实现了Done() <-chan struct{}方法而又返回nil的话，会导致上下文树取消有问题：
+```go
+type valueCtx struct {
+	context.Context
+	keys sync.Map
+}
+
+func (ctx *valueCtx) Value(key interface{}) interface{} {
+	v, ok := ctx.keys.Load(key)
+	if ok {
+		return v
+	}
+	return ctx.Context.Value(key)
+}
+
+func (ctx *valueCtx) Done() <-chan struct{} {
+	return nil
+}
+
+```
+使用case：
+>go test -v -run=TestUseParentNil
+
+如果需要自定义实现可以取消的上下文，大概逻辑得是这样的，开启一个协程监听父级上下文状态：
+```go
+
+type ctxCancel struct {
+	context.Context
+	mu   sync.Mutex
+	done chan struct{}
+	err  error
+}
+
+func (m *ctxCancel) Watch() {
+	go func() {
+		select {
+		case <-m.Context.Done():
+			//m.Done()
+			m.Close()
+		case <-m.Done():
+
+		}
+	}()
+}
 
 
-
-![img_1.png](img/img_1.png)
-
-
-如上左图，代表一棵 context 树。当调用左图中标红 context 的 cancel 方法后，该 context 从它的父 context 中去除掉了：实线箭头变成了虚线。且虚线圈框出来的 context 都被取消了，圈内的 context 间的父子取消关系都荡然无存了。
-
-
+func (m *ctxCancel) Done() <-chan struct{} {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if nil == m.done {
+		m.done = make(chan struct{})
+	}
+	return m.done
+}
+```
 再来说一下，select 语句里的两个 case 其实都不能删。
 
 ```go
@@ -444,6 +493,15 @@ case <-child.Done():
 第一个 case 说明当父节点取消，则取消子节点。如果去掉这个 case，那么父节点取消的信号就不能传递到子节点。
 
 第二个 case 是说如果子节点自己取消了，那就退出这个 select，父节点的取消信号就不用管了。如果去掉这个 case，那么很可能父节点一直不取消，这个 goroutine 就泄漏了。当然，如果父节点取消了，就会重复让子节点取消，不过，这也没什么影响嘛。
+
+
+
+
+![img_1.png](img/img_1.png)
+
+
+如上左图，代表一棵 context 树。当调用左图中标红 context 的 cancel 方法后，该 context 从它的父 context 中去除掉了：实线箭头变成了虚线。且虚线圈框出来的 context 都被取消了，圈内的 context 间的父子”取消“关系都荡然无存了，但是上下文树关系还是存在的。
+
 
 
 来看 Done() 方法的实现：
@@ -488,7 +546,7 @@ func (c *cancelCtx) Err() error {
 	return c.err
 }
 ```
-为什么改为现在这样，主要原因是性能考量
+为什么改为现在这样，主要原因是性能考量，defer能够很好地优化代码结构，但defer是有性能损耗的
 >go test -v -run="noce" -bench=. -benchtime=10s
 
 
@@ -650,6 +708,7 @@ Do not store Contexts inside a struct type; instead, pass a Context explicitly t
 Do not pass a nil Context, even if a function permits it. Pass context.TODO if you are unsure about which Context to use.
 Use context Values only for request-scoped data that transits processes and APIs, not for passing optional parameters to functions.
 The same Context may be passed to functions running in different goroutines; Contexts are safe for simultaneous use by multiple goroutines.
+
 我翻译一下：
 
 不要将 Context 塞到结构体里。直接将 Context 类型作为函数的第一参数，而且一般都命名为 ctx。
