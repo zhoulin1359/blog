@@ -45,7 +45,7 @@
 //
 // See https://blog.golang.org/context for example code for a server that uses
 // Contexts.
-package context
+package cmd
 
 import (
 	"errors"

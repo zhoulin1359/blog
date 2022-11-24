@@ -569,7 +569,8 @@ func (c *cancelCtx) Err() error {
 ```
 为什么改为现在这样，主要原因是性能考量，defer能够很好地优化代码结构，但defer是有性能损耗的
 >go test -v -run="noce" -bench=. -benchtime=10s
-
+>
+> 为什么 Err() 方法要加锁，
 
 接下来，我们重点关注 cancel() 方法的实现：
 
