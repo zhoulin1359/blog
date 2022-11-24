@@ -571,6 +571,11 @@ func (c *cancelCtx) Err() error {
 >go test -v -run="noce" -bench=. -benchtime=10s
 >
 > 为什么 Err() 方法要加锁，
+> 
+> go test -v -test.run=TestNotLockErr_Err
+> 
+>  go test -v -test.run=TestNotLockErr_ErrLock
+
 
 接下来，我们重点关注 cancel() 方法的实现：
 
