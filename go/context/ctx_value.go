@@ -18,6 +18,10 @@ func (ctx *valueCtx) Value(key interface{}) interface{} {
 	return ctx.Context.Value(key)
 }
 
+func (ctx *valueCtx) SetValue(key, value interface{}) {
+	ctx.keys.Store(key, value)
+}
+
 func (ctx *valueCtx) Done() <-chan struct{} {
 	return nil
 }

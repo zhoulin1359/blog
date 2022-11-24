@@ -23,13 +23,16 @@ func UseValue() {
 
 func UseCtxValue() {
 	ctx := context.TODO()
-	store := sync.Map{}
-	store.Store("a", "a1")
-	store.Store("a", "a2")
 	ctx = &valueCtx{
 		Context: ctx,
-		keys:    store,
+		keys:    sync.Map{},
 	}
+	ctx1, ok := ctx.(*valueCtx)
+	if ok {
+		ctx1.SetValue("a", "a1")
+		ctx1.SetValue("a", "a2")
+	}
+
 	fmt.Println(ctx.Value("a"))
 
 	ctx = context.WithValue(ctx, "key", "a3")
@@ -141,20 +144,6 @@ func UseCtxWrap() {
 	time.Sleep(time.Second * 1)
 }
 
-func UseCancelDebug() {
-	ctx := context.TODO()
-	//取消.父可以取消子
-	ctx, cancel := context.WithCancel(ctx)
-	go func(ctx1 context.Context) {
-		<-ctx1.Done()
-		log.Println("f1", ctx1.Err(), &ctx1)
-	}(ctx)
-	time.Sleep(time.Second * 1)
-	//取消父亲
-	cancel()
-	time.Sleep(time.Second * 1)
-}
-
 func UseCancel() {
 	ctx := context.TODO()
 	//取消.父可以取消子
@@ -192,6 +181,24 @@ func UseCancel() {
 	cancel2()
 	time.Sleep(time.Second * 1)
 
+}
+
+func UseCtxClosure() {
+	ctx := context.TODO()
+	ctx, _ = context.WithCancel(ctx)
+	go func() {
+		<-ctx.Done()
+		log.Println("f1", ctx.Err(), &ctx)
+	}()
+	ctx, cancel2 := context.WithCancel(ctx)
+	go func() {
+		<-ctx.Done()
+		log.Println("f2", ctx.Err(), &ctx)
+	}()
+	time.Sleep(time.Second * 1)
+	//取消子
+	cancel2()
+	time.Sleep(time.Second * 1)
 }
 
 func ContextParent() {

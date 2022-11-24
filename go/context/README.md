@@ -251,6 +251,10 @@ func (ctx *valueCtx) Value(key interface{}) interface{} {
 	}
 	return ctx.Context.Value(key)
 }
+
+func (ctx *valueCtx) SetValue(key, value interface{}) {
+	ctx.keys.Store(key, value)
+}
 ```
 存放在上下文里面的是一个map,grpc使用这种方式存放数据在上下文里面：
 ```go
@@ -410,9 +414,22 @@ func parentCancelCtx(parent Context) (*cancelCtx, bool) {
 
 当 removeFromParent 为 true 时，会将当前节点的 context 从父节点 context 中删除：
 
-最关键的一行：
+最关键代码：
 
->delete(p.children, child)
+```go
+// removeChild removes a context from its parent.
+func removeChild(parent Context, child canceler) {
+	p, ok := parentCancelCtx(parent)
+	if !ok {
+		return
+	}
+	p.mu.Lock()
+	if p.children != nil {
+		delete(p.children, child)
+	}
+	p.mu.Unlock()
+}
+```
 
 什么时候会传 true 呢？答案是调用 WithCancel() 方法的时候，也就是新创建一个可取消的 context 节点时，返回的 cancelFunc 函数会传入 true。这样做的结果是：当调用返回的 cancelFunc 时，会将这个 context 从它的父节点里“除名”，因为父节点可能有很多子节点，你自己取消了，所以我要和你断绝关系，对其他人没影响。
 
@@ -503,6 +520,9 @@ case <-child.Done():
 
 如上左图，代表一棵 context 树。当调用左图中标红 context 的 cancel 方法后，该 context 从它的父 context 中去除掉了：实线箭头变成了虚线。且虚线圈框出来的 context 都被取消了，圈内的 context 间的父子”取消“关系都荡然无存了，但是上下文树关系还是存在的。
 
+>go test -v -test.run=TestUseCancel 父可以取消子，子不可以取消父
+
+> go test -v -test.run=TestUseCtxClosure 一个值得注意的问题 
 
 
 来看 Done() 方法的实现：

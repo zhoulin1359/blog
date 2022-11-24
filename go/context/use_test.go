@@ -29,3 +29,11 @@ func TestUseParentNotDone(t *testing.T) {
 func TestUseCtxWrap(t *testing.T) {
 	UseCtxWrap()
 }
+
+func TestUseCancel(t *testing.T) {
+	UseCancel()
+}
+
+func TestUseCtxClosure(t *testing.T) {
+	UseCtxClosure()
+}
