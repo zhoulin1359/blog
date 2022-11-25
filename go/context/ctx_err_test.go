@@ -34,7 +34,7 @@ func BenchmarkCtxErr_ErrNotDefer(b *testing.B) {
 	}
 }
 
-func BenchmarkCtxErr_ErrNotDeferRW(b *testing.B) {
+func BenchmarkCtxErr_ErrDeferRW(b *testing.B) {
 	err := errors.New("error not defer")
 	ctx := ctxErr{
 		lock: sync.Mutex{},
@@ -42,9 +42,58 @@ func BenchmarkCtxErr_ErrNotDeferRW(b *testing.B) {
 		err:  err,
 	}
 	for i := 0; i < b.N; i++ {
-		res := ctx.ErrNotDeferRW()
+		res := ctx.ErrDeferRW()
 		if err != res {
 			b.Fatal(res)
 		}
 	}
+}
+
+func BenchmarkCtxErr_ErrNotLock(b *testing.B) {
+	err := errors.New("error not defer")
+	ctx := ctxErr{
+		lock: sync.Mutex{},
+		rw:   sync.RWMutex{},
+		err:  err,
+	}
+	for i := 0; i < b.N; i++ {
+		res := ctx.ErrNotLock()
+		if err != res {
+			b.Fatal(res)
+		}
+	}
+}
+
+func BenchmarkCtxErr_ErrDefer2W(b *testing.B) {
+	err := errors.New("error not defer")
+	ctx := ctxErr{
+		lock: sync.Mutex{},
+		rw:   sync.RWMutex{},
+		err:  err,
+	}
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			res := ctx.ErrNotDefer()
+			if err != res {
+				b.Fatal(res)
+			}
+		}
+	})
+}
+
+func BenchmarkCtxErr_ErrDefer2RW(b *testing.B) {
+	err := errors.New("error not defer")
+	ctx := ctxErr{
+		lock: sync.Mutex{},
+		rw:   sync.RWMutex{},
+		err:  err,
+	}
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			res := ctx.ErrDeferRW()
+			if err != res {
+				b.Fatal(res)
+			}
+		}
+	})
 }

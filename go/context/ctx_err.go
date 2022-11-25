@@ -21,9 +21,13 @@ func (c *ctxErr) ErrNotDefer() error {
 	return err
 }
 
-func (c *ctxErr) ErrNotDeferRW() error {
+func (c *ctxErr) ErrDeferRW() error {
 	c.rw.RLock()
 	err := c.err
 	c.rw.RUnlock()
 	return err
+}
+
+func (c *ctxErr) ErrNotLock() error {
+	return c.err
 }
