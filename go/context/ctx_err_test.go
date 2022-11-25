@@ -33,3 +33,18 @@ func BenchmarkCtxErr_ErrNotDefer(b *testing.B) {
 		}
 	}
 }
+
+func BenchmarkCtxErr_ErrNotDeferRW(b *testing.B) {
+	err := errors.New("error not defer")
+	ctx := ctxErr{
+		lock: sync.Mutex{},
+		rw:   sync.RWMutex{},
+		err:  err,
+	}
+	for i := 0; i < b.N; i++ {
+		res := ctx.ErrNotDeferRW()
+		if err != res {
+			b.Fatal(res)
+		}
+	}
+}

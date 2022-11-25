@@ -4,6 +4,7 @@ import "sync"
 
 type ctxErr struct {
 	lock sync.Mutex
+	rw   sync.RWMutex
 	err  error
 }
 
@@ -17,5 +18,12 @@ func (c *ctxErr) ErrNotDefer() error {
 	c.lock.Lock()
 	err := c.err
 	c.lock.Unlock()
+	return err
+}
+
+func (c *ctxErr) ErrNotDeferRW() error {
+	c.rw.RLock()
+	err := c.err
+	c.rw.RUnlock()
 	return err
 }
