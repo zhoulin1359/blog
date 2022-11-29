@@ -2,6 +2,7 @@ package context
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"github.com/gookit/goutil/dump"
 	"log"
@@ -12,6 +13,9 @@ import (
 
 // UseValue 传值的context
 func UseValue() {
+
+	j(nil)
+
 	ctx := context.TODO()
 	//设置值
 	ctx = context.WithValue(ctx, "a", "a1")
@@ -19,6 +23,11 @@ func UseValue() {
 	ctx = context.WithValue(ctx, "a", "a2")
 	fmt.Println(ctx.Value("a"))
 	dump.P(ctx)
+}
+
+func j(m map[string]int) {
+	l, err := json.Marshal(m)
+	fmt.Println(l, err)
 }
 
 func UseCtxValue() {
